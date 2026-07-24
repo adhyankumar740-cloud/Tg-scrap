@@ -60,6 +60,7 @@ app.get('/extract-vk', async (req, res) => {
 
     const limit = parseInt(req.query.limit, 10) || 20;
     const botUsername = req.query.bot ? req.query.bot.trim() : 'vkmusic_bot';
+    const song = req.query.song ? req.query.song.trim() : '';
 
     // Lock job status
     isScrapingRunning = true;
@@ -67,13 +68,16 @@ app.get('/extract-vk', async (req, res) => {
         status: 'running',
         targetBot: botUsername,
         limit: limit,
+        query: song || undefined,
         startedAt: new Date().toISOString()
     };
 
     // Immediate response to browser/HTTP client
     res.json({
         status: 'initiated',
-        message: `VK Music extraction started for @${botUsername} (Last ${limit} messages). Check Render Dashboard Logs for live progress!`,
+        message: song
+            ? `VK Music search started for "${song}" on @${botUsername}. Check Render Dashboard Logs for live progress!`
+            : `VK Music extraction started for @${botUsername} (Last ${limit} messages). Check Render Dashboard Logs for live progress!`,
         timestamp: new Date().toISOString()
     });
 
@@ -88,13 +92,15 @@ app.get('/extract-vk', async (req, res) => {
 
             await downloadVkMusic(client, {
                 botUsername: botUsername,
-                limit: limit
+                limit: limit,
+                query: song
             });
 
             lastScrapingStatus = {
                 status: 'completed',
                 targetBot: botUsername,
                 limit: limit,
+                query: song || undefined,
                 completedAt: new Date().toISOString()
             };
             console.log(`\n✅ VK Music Extraction Job Completed Successfully.\n`);

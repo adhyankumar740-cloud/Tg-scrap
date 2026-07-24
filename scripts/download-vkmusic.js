@@ -1,9 +1,28 @@
 const { Api } = require("telegram");
+const fs = require("fs");
+const path = require("path");
+
+const DOWNLOAD_DIR = path.join(__dirname, "..", "downloads");
+if (!fs.existsSync(DOWNLOAD_DIR)) {
+    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+}
+
+// Wrapper matching what server.js calls: downloadVkMusic(client, { botUsername, limit, query })
+async function downloadVkMusic(client, options = {}) {
+    const songName = options.query || options.song || "";
+    const bot = options.botUsername || "vkmusic_bot";
+
+    if (!songName) {
+        throw new Error("Koi 'song' query param nahi diya gaya. Example: /extract-vk?song=tera+ban+jaunga");
+    }
+
+    return fetchVKMusic(client, songName, bot);
+}
 
 // Main scraping function
-async function fetchVKMusic(client, songName) {
-    const botUsername = "@vkmusic_bot";
-    
+async function fetchVKMusic(client, songName, botUsernameRaw = "vkmusic_bot") {
+    const botUsername = "@" + botUsernameRaw.replace(/^@/, "");
+
     try {
         console.log(`🎵 ${botUsername} par "${songName}" search kiya ja raha hai...`);
         
@@ -40,17 +59,18 @@ async function fetchVKMusic(client, songName) {
         // 5. Audio file download karna
         console.log("✅ Audio mil gaya! Downloading...");
         const buffer = await client.downloadMedia(audioMessage);
-        
-        // Yahan aap file ko FS (File System) use karke save kar sakte hain
-        // const fs = require('fs');
-        // fs.writeFileSync(`${songName}.mp3`, buffer);
-        
-        console.log(`✅ "${songName}" Successfully Downloaded!`);
-        return true;
+
+        const safeName = songName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+        const fileName = `${safeName}_${Date.now()}.mp3`;
+        const filePath = path.join(DOWNLOAD_DIR, fileName);
+        fs.writeFileSync(filePath, buffer);
+
+        console.log(`✅ "${songName}" Successfully Downloaded! Saved as: ${fileName}`);
+        return { success: true, fileName, filePath };
 
     } catch (error) {
         console.error("❌ Error aagaya VK Music extraction mein:", error);
-        return false;
+        return { success: false, error: error.message };
     }
 }
 

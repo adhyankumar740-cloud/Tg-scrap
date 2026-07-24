@@ -2,9 +2,9 @@ const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 
 // Environment Variables se Credentials fetch kar rahe hain
-const apiId = parseInt(process.env.API_ID, 10);
-const apiHash = process.env.API_HASH;
-const sessionString = process.env.STRING_SESSION || "";
+const apiId = parseInt(process.env.TELEGRAM_API_ID, 10);
+const apiHash = process.env.TELEGRAM_API_HASH;
+const sessionString = process.env.TELEGRAM_SESSION || "";
 
 const stringSession = new StringSession(sessionString);
 
@@ -20,7 +20,7 @@ async function getClient() {
     }
 
     if (!apiId || !apiHash) {
-        throw new Error("Render Environment Variables mein API_ID ya API_HASH missing hai!");
+        throw new Error("Render Environment Variables mein TELEGRAM_API_ID ya TELEGRAM_API_HASH missing hai!");
     }
 
     console.log("🔐 Telegram Client Initializing...");

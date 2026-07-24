@@ -1,4 +1,5 @@
 const { Api } = require("telegram");
+const { NewMessage } = require("telegram/events");
 const fs = require("fs");
 const path = require("path");
 
@@ -87,26 +88,21 @@ async function waitForMessage(client, chatId, timeoutMs, conditionCallback) {
             }
         }, timeoutMs);
 
-        const messageHandler = async (update) => {
+        const messageHandler = async (event) => {
             if (isResolved) return;
-            
-            // Check if it's a new message in our specific chat
-            if (update.className === "UpdateNewMessage" && update.message) {
-                const msg = update.message;
-                const peerId = msg.peerId && (msg.peerId.userId || msg.peerId.channelId);
-                
-                // Note: Aapko yahan resolve karna hoga ki bot ka actual ID kya hai
-                // For simplicity, just checking if condition matches
-                if (conditionCallback(msg)) {
-                    isResolved = true;
-                    clearTimeout(timeout);
-                    client.removeEventHandler(messageHandler);
-                    resolve(msg);
-                }
+
+            const msg = event.message;
+            if (!msg) return;
+
+            if (conditionCallback(msg)) {
+                isResolved = true;
+                clearTimeout(timeout);
+                client.removeEventHandler(messageHandler);
+                resolve(msg);
             }
         };
 
-        client.addEventHandler(messageHandler, new Api.events.NewMessage({}));
+        client.addEventHandler(messageHandler, new NewMessage({}));
     });
 }
 

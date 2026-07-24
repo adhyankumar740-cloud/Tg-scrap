@@ -1,73 +1,41 @@
 const { TelegramClient } = require("telegram");
-const { updateCredentials, getCredentials } = require("../utils/file-helper");
 const { StringSession } = require("telegram/sessions");
-const { logMessage } = require("../utils/helper");
 
-const {
-  textInput,
-  mobileNumberInput,
-  otpInput,
-  selectInput,
-} = require("../utils/input-helper");
+// Environment Variables se Credentials fetch kar rahe hain
+const apiId = parseInt(process.env.API_ID, 10);
+const apiHash = process.env.API_HASH;
+const sessionString = process.env.STRING_SESSION || "";
 
-const OTP_METHOD = {
-  SMS: "sms",
-  APP: "app",
-};
+const stringSession = new StringSession(sessionString);
 
-let { apiHash, apiId, sessionId } = getCredentials();
-const stringSession = new StringSession(sessionId || "");
+let clientInstance = null;
 
 /**
- * Initializes the authentication process for the Telegram client.
- * @param {string} [otpPreference=OTP_METHOD.APP] - The preferred method for receiving the OTP (either 'app' or 'sms').
- * @returns {Promise<TelegramClient>} - The authenticated Telegram client.
+ * Telegram Client Instance get/initialize karne ka function
  */
-const initAuth = async (otpPreference = OTP_METHOD.APP) => {
-  const client = new TelegramClient(stringSession, apiId, apiHash, {
-    connectionRetries: 5,
-  });
-
-  try {
-    if (!sessionId) {
-      otpPreference = await selectInput("Where do you want the login OTP:", [
-        OTP_METHOD.APP,
-        OTP_METHOD.SMS,
-      ]);
+async function getClient() {
+    // Agar client pehle se connected hai toh wahi instance return karo
+    if (clientInstance && clientInstance.connected) {
+        return clientInstance;
     }
 
-    const forceSMS = otpPreference === OTP_METHOD.SMS;
+    if (!apiId || !apiHash) {
+        throw new Error("Render Environment Variables mein API_ID ya API_HASH missing hai!");
+    }
 
-    await client.start({
-      phoneNumber: async () => await mobileNumberInput(),
-      password: async () => await textInput("Enter your password"),
-      phoneCode: async (isCodeViaApp) => {
-        logMessage.info(`OTP sent over ${isCodeViaApp ? "APP" : "SMS"}`);
-
-        return await otpInput();
-      },
-      forceSMS,
-      onError: (err) => logMessage.error(err),
+    console.log("🔐 Telegram Client Initializing...");
+    
+    clientInstance = new TelegramClient(stringSession, apiId, apiHash, {
+        connectionRetries: 5,
     });
 
-    logMessage.success("You should now be connected.");
+    await clientInstance.connect();
+    console.log("✅ Telegram Client Connected Successfully!");
 
-    if (!sessionId) {
-      sessionId = client.session.save();
-      updateCredentials({ sessionId });
-      logMessage.info(
-        "To avoid logging in again and again, the session ID has been saved to config.json. Please don't share it with anyone."
-      );
-    }
-  
-    return client;
-  } catch (err) {
-    logMessage.error(err);
+    return clientInstance;
+}
 
-    throw err;
-  }
-};
-
+// Sahi Named Export
 module.exports = {
-  initAuth,
+    getClient
 };

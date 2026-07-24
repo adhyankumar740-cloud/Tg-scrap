@@ -3,6 +3,9 @@ const path = require("path");
 const logger = require("../utils/logger");
 const { circularStringify } = require("../utils/helper");
 
+/**
+ * Fetch messages from a channel/group.
+ */
 const getMessages = async (client, channelId, limit = 10, offsetId = 0) => {
   if (!client || !channelId) {
     throw new Error("Client and channelId are required");
@@ -17,9 +20,7 @@ const getMessages = async (client, channelId, limit = 10, offsetId = 0) => {
 };
 
 /**
- * Server-side search inside a single channel/group by filename or caption text.
- * Telegram itself does the matching, so this works even on very large channels
- * without having to fetch/scan every message locally.
+ * Search messages in a channel/group by filename or caption text.
  */
 const searchMessages = async (client, channelId, query, limit = 20) => {
   if (!client || !channelId || !query) {
@@ -34,6 +35,9 @@ const searchMessages = async (client, channelId, query, limit = 20) => {
   }
 };
 
+/**
+ * Get details of specific messages by IDs.
+ */
 const getMessageDetail = async (client, channelId, messageIds) => {
   if (!client || !channelId || !messageIds) {
     throw new Error("Client, channelId, and messageIds are required");
@@ -47,6 +51,9 @@ const getMessageDetail = async (client, channelId, messageIds) => {
   }
 };
 
+/**
+ * Download media from a message (files, polls, webpages).
+ */
 const downloadMessageMedia = async (client, message, mediaPath) => {
   try {
     if (!client || !message || !mediaPath) {
@@ -55,6 +62,7 @@ const downloadMessageMedia = async (client, message, mediaPath) => {
     }
 
     if (message.media) {
+      // Handle webpage media
       if (message.media.webpage) {
         const url = message.media.webpage.url;
         if (url) {
@@ -68,6 +76,7 @@ const downloadMessageMedia = async (client, message, mediaPath) => {
         );
       }
 
+      // Handle poll media
       if (message.media.poll) {
         const pollPath = path.join(mediaPath, `../${message.id}_poll.json`);
         fs.writeFileSync(
@@ -76,6 +85,7 @@ const downloadMessageMedia = async (client, message, mediaPath) => {
         );
       }
 
+      // Download actual media file
       await client.downloadMedia(message, {
         outputFile: mediaPath,
         progressCallback: (downloaded, total) => {
@@ -101,7 +111,7 @@ const downloadMessageMedia = async (client, message, mediaPath) => {
 
 module.exports = {
   getMessages,
+  searchMessages,
   getMessageDetail,
   downloadMessageMedia,
-  searchMessages,
 };

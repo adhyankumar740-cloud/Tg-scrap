@@ -133,9 +133,21 @@ const updateLastSelection = (object) => {
   }
 };
 
+/**
+ * Creates a directory (recursively) if it doesn't already exist.
+ *
+ * @param {string} dirPath - The directory path to ensure exists.
+ */
+const ensureDirExists = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+};
+
 module.exports = {
   updateCredentials,
   getCredentials,
   getLastSelection,
   updateLastSelection,
+  ensureDirExists,
 };

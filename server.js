@@ -3,8 +3,12 @@ const express = require("express");
 const { initAuth } = require("./modules/auth");
 const DownloadChannel = require("./scripts/download-channel");
 const { getAllDialogs } = require("./modules/dialoges");
+const { searchMessages, downloadMessageMedia } = require("./modules/messages");
+const { getMediaFileName, getMediaType } = require("./utils/helper");
 const logger = require("./utils/logger");
 const { EXPORT_DIR } = require("./utils/paths");
+const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
@@ -125,6 +129,85 @@ async function runJob(channels) {
   currentJob.finishedAt = new Date().toISOString();
   logger.success("All channels processed.");
 }
+
+// Search your own channel/group for a file by name or caption text.
+// GET /search?query=song%20name&channel=yourChannelUsernameOrId
+// If "channel" is omitted, falls back to the first entry in the CHANNELS env var.
+app.get("/search", requireSecret, async (req, res) => {
+  try {
+    const query = req.query.query;
+    const channel =
+      req.query.channel ||
+      (process.env.CHANNELS ? process.env.CHANNELS.split(",")[0].trim() : null);
+
+    if (!query) {
+      return res.status(400).json({ error: "Pass ?query=filename or song name" });
+    }
+    if (!channel) {
+      return res.status(400).json({ error: "Pass ?channel=... or set CHANNELS env var" });
+    }
+
+    const client = await getSharedClient();
+    const messages = await searchMessages(client, channel, query, 20);
+
+    const results = messages
+      .filter((m) => m.media)
+      .map((m) => ({
+        messageId: m.id,
+        fileName: getMediaFileName(m),
+        mediaType: getMediaType(m),
+        caption: m.message || "",
+        date: m.date,
+      }));
+
+    res.json({ channel, query, count: results.length, results });
+  } catch (err) {
+    logger.error(err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download exactly one matched file by its message id (no zip, just the raw file).
+// GET /file/:messageId?channel=yourChannelUsernameOrId
+app.get("/file/:messageId", requireSecret, async (req, res) => {
+  try {
+    const messageId = Number(req.params.messageId);
+    const channel =
+      req.query.channel ||
+      (process.env.CHANNELS ? process.env.CHANNELS.split(",")[0].trim() : null);
+
+    if (!channel) {
+      return res.status(400).json({ error: "Pass ?channel=... or set CHANNELS env var" });
+    }
+
+    const client = await getSharedClient();
+    const [message] = await client.getMessages(channel, { ids: [messageId] });
+
+    if (!message || !message.media) {
+      return res.status(404).json({ error: "No message/media found for that id" });
+    }
+
+    const fileName = getMediaFileName(message) || `${messageId}_file`;
+    const tempDir = path.join(EXPORT_DIR, "_tmp_single");
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const tempPath = path.join(tempDir, fileName);
+
+    const ok = await downloadMessageMedia(client, message, tempPath);
+    if (!ok || !fs.existsSync(tempPath)) {
+      return res.status(500).json({ error: "Download failed" });
+    }
+
+    res.download(tempPath, fileName, (err) => {
+      // Clean up the temp copy after it's been sent, so the free Render disk
+      // doesn't fill up with one-off downloads.
+      fs.unlink(tempPath, () => {});
+      if (err) logger.error(`Error sending file: ${err.message}`);
+    });
+  } catch (err) {
+    logger.error(err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.listen(PORT, () => {
   logger.success(`Server listening on port ${PORT}`);

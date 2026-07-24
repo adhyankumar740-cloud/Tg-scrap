@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs");
-const { getVkMusicMessages } = require("../modules/messages");
+const { getVkMusicMessages, searchVkMusicMessages } = require("../modules/messages");
 const { ensureDirExists } = require("../utils/file-helper");
 const { EXPORT_DIR } = require("../utils/paths");
 
@@ -10,14 +10,21 @@ const { EXPORT_DIR } = require("../utils/paths");
 async function downloadVkMusic(client, options = {}) {
     const botUsername = options.botUsername || "vkmusic_bot";
     const limit = options.limit || 100;
+    const query = options.query ? options.query.trim() : "";
     const outputDir = path.join(EXPORT_DIR, "VK_Music");
 
     ensureDirExists(outputDir);
 
-    console.log(`\n🎵 VK Music Bot (@${botUsername}) se audio tracks fetch kiye ja rahe hain...`);
+    console.log(
+        query
+            ? `\n🎵 VK Music Bot (@${botUsername}) par "${query}" search kiya ja raha hai...`
+            : `\n🎵 VK Music Bot (@${botUsername}) se audio tracks fetch kiye ja rahe hain...`
+    );
 
     try {
-        const { audioMessages } = await getVkMusicMessages(client, botUsername, limit);
+        const { audioMessages } = query
+            ? await searchVkMusicMessages(client, botUsername, query)
+            : await getVkMusicMessages(client, botUsername, limit);
 
         if (!audioMessages || audioMessages.length === 0) {
             console.log("⚠️ VK Music Bot chat mein koi audio files nahi mili.");

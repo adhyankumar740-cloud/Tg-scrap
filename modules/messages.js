@@ -1,117 +1,40 @@
-const fs = require("fs");
-const path = require("path");
-const logger = require("../utils/logger");
-const { circularStringify } = require("../utils/helper");
+const { Api } = require("telegram");
 
 /**
- * Fetch messages from a channel/group.
+ * VK Music Bot se Audio / MP3 Messages extract karne ka function
+ * @param {Object} client - GramJS Client instance
+ * @param {string} botUsername - Target Bot Username (default: "vkmusic_bot")
+ * @param {number} limit - Messages limit
  */
-const getMessages = async (client, channelId, limit = 10, offsetId = 0) => {
-  if (!client || !channelId) {
-    throw new Error("Client and channelId are required");
-  }
+async function getVkMusicMessages(client, botUsername = "vkmusic_bot", limit = 100) {
+    try {
+        // Resolve entity for VK Music Bot
+        const entity = await client.getEntity(botUsername);
+        
+        // Chat history se messages fetch karein
+        const messages = await client.getMessages(entity, { limit: limit });
 
-  try {
-    const result = await client.getMessages(channelId, { limit, offsetId });
-    return result;
-  } catch (error) {
-    throw new Error(`Failed to get messages: ${error.message}`);
-  }
-};
+        // Sirf un messages ko filter karein jinme audio ya document media ho
+        const audioMessages = messages.filter(msg => {
+            if (!msg.media) return false;
+            
+            const isAudio = msg.media.audio;
+            const isDocument = msg.media.document;
+            
+            // Check if document is an audio file
+            const mimeType = isDocument?.mimeType || "";
+            const isAudioMime = mimeType.startsWith("audio/") || mimeType.includes("mpeg");
 
-/**
- * Search messages in a channel/group by filename or caption text.
- */
-const searchMessages = async (client, channelId, query, limit = 20) => {
-  if (!client || !channelId || !query) {
-    throw new Error("Client, channelId, and query are required");
-  }
+            return isAudio || isAudioMime;
+        });
 
-  try {
-    const result = await client.getMessages(channelId, { search: query, limit });
-    return result;
-  } catch (error) {
-    throw new Error(`Failed to search messages: ${error.message}`);
-  }
-};
-
-/**
- * Get details of specific messages by IDs.
- */
-const getMessageDetail = async (client, channelId, messageIds) => {
-  if (!client || !channelId || !messageIds) {
-    throw new Error("Client, channelId, and messageIds are required");
-  }
-
-  try {
-    const result = await client.getMessages(channelId, { ids: messageIds });
-    return result;
-  } catch (error) {
-    throw new Error(`Failed to get message details: ${error.message}`);
-  }
-};
-
-/**
- * Download media from a message (files, polls, webpages).
- */
-const downloadMessageMedia = async (client, message, mediaPath) => {
-  try {
-    if (!client || !message || !mediaPath) {
-      logger.error("Client, message, and mediaPath are required");
-      return false;
+        return { entity, audioMessages };
+    } catch (error) {
+        console.error("❌ Error fetching messages from VK Music Bot:", error.message);
+        throw error;
     }
-
-    if (message.media) {
-      // Handle webpage media
-      if (message.media.webpage) {
-        const url = message.media.webpage.url;
-        if (url) {
-          const urlPath = path.join(mediaPath, `../${message.id}_url.txt`);
-          fs.writeFileSync(urlPath, url);
-        }
-
-        mediaPath = path.join(
-          mediaPath,
-          `../${message?.media?.webpage?.id}_image.jpeg`
-        );
-      }
-
-      // Handle poll media
-      if (message.media.poll) {
-        const pollPath = path.join(mediaPath, `../${message.id}_poll.json`);
-        fs.writeFileSync(
-          pollPath,
-          circularStringify(message.media.poll, null, 2)
-        );
-      }
-
-      // Download actual media file
-      await client.downloadMedia(message, {
-        outputFile: mediaPath,
-        progressCallback: (downloaded, total) => {
-          const name = path.basename(mediaPath);
-          if (total === downloaded) {
-            logger.success(`File ${name} downloaded successfully`);
-          }
-        },
-      });
-
-      return true;
-    } else {
-      logger.error("No media found in the message");
-      return false;
-    }
-
-  } catch (err) {
-    logger.error("Error in downloadMessageMedia()");
-    console.error(err);
-    return false;
-  }
-};
+}
 
 module.exports = {
-  getMessages,
-  searchMessages,
-  getMessageDetail,
-  downloadMessageMedia,
+    getVkMusicMessages
 };

@@ -16,6 +16,24 @@ const getMessages = async (client, channelId, limit = 10, offsetId = 0) => {
   }
 };
 
+/**
+ * Server-side search inside a single channel/group by filename or caption text.
+ * Telegram itself does the matching, so this works even on very large channels
+ * without having to fetch/scan every message locally.
+ */
+const searchMessages = async (client, channelId, query, limit = 20) => {
+  if (!client || !channelId || !query) {
+    throw new Error("Client, channelId, and query are required");
+  }
+
+  try {
+    const result = await client.getMessages(channelId, { search: query, limit });
+    return result;
+  } catch (error) {
+    throw new Error(`Failed to search messages: ${error.message}`);
+  }
+};
+
 const getMessageDetail = async (client, channelId, messageIds) => {
   if (!client || !channelId || !messageIds) {
     throw new Error("Client, channelId, and messageIds are required");
@@ -85,4 +103,5 @@ module.exports = {
   getMessages,
   getMessageDetail,
   downloadMessageMedia,
+  searchMessages,
 };

@@ -1,215 +1,131 @@
-require("dotenv").config();
-const express = require("express");
-const { initAuth } = require("./modules/auth");
-const DownloadChannel = require("./scripts/download-channel");
-const { getAllDialogs } = require("./modules/dialoges");
-const { searchMessages, downloadMessageMedia } = require("./modules/messages");
-const { getMediaFileName, getMediaType } = require("./utils/helper");
-const logger = require("./utils/logger");
-const { EXPORT_DIR } = require("./utils/paths");
-const path = require("path");
-const fs = require("fs");
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const { getClient } = require('./modules/auth');
+const { downloadVkMusic } = require('./scripts/download-vkmusic');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware Setup
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const PORT = process.env.PORT || 10000;
-const APP_SECRET = process.env.APP_SECRET;
-
-// All media types on by default, matching the original index.js.
-const DOWNLOADABLE_FILES = {
-  webpage: true,
-  poll: true,
-  geo: true,
-  contact: true,
-  venue: true,
-  sticker: true,
-  image: true,
-  video: true,
-  audio: true,
-  pdf: true,
-  document: true,
+// Global Scraper State
+let isScrapingRunning = false;
+let lastScrapingStatus = {
+    status: 'idle',
+    message: 'No extraction task has run yet.',
+    timestamp: null
 };
 
-let sharedClient = null;
-let currentJob = null;
-
-async function getSharedClient() {
-  if (!sharedClient) {
-    sharedClient = await initAuth();
-  }
-  return sharedClient;
-}
-
-function requireSecret(req, res, next) {
-  if (!APP_SECRET) {
-    return res.status(500).json({ error: "APP_SECRET is not configured on the server" });
-  }
-  if (req.headers["x-api-key"] !== APP_SECRET) {
-    return res.status(401).json({ error: "Unauthorized. Pass the correct x-api-key header." });
-  }
-  next();
-}
-
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Telegram channel downloader is running.", currentJob });
-});
-
-app.get("/status", (req, res) => {
-  res.json({ currentJob });
-});
-
-// Optional: list all your channels/groups/users so you can find the right channelId/username.
-// GET /dialogs  (requires x-api-key header)
-app.get("/dialogs", requireSecret, async (req, res) => {
-  try {
-    const client = await getSharedClient();
-    const dialogs = await getAllDialogs(client);
-    res.json({ count: dialogs.length, dialogs });
-  } catch (err) {
-    logger.error(err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Start a download job for the channels configured in the CHANNELS env var,
-// or pass a specific list in the request body: { "channels": ["chan1", "chan2"] }
-// Each entry can be a @username, a public channel name, or a numeric chat id.
-app.post("/download", requireSecret, async (req, res) => {
-  if (currentJob && currentJob.status === "running") {
-    return res.status(409).json({ error: "A download job is already running", currentJob });
-  }
-
-  const channels =
-    (req.body && req.body.channels) ||
-    (process.env.CHANNELS ? process.env.CHANNELS.split(",").map((c) => c.trim()).filter(Boolean) : []);
-
-  if (!channels.length) {
-    return res.status(400).json({ error: "No channels provided (set CHANNELS env var or pass channels in body)" });
-  }
-
-  currentJob = {
-    status: "running",
-    startedAt: new Date().toISOString(),
-    channels,
-    results: [],
-  };
-
-  res.json({ message: "Download job started", currentJob });
-
-  runJob(channels).catch((err) => {
-    logger.error(`Job failed: ${err.message}`);
-    currentJob.status = "failed";
-    currentJob.error = err.message;
-  });
-});
-
-async function runJob(channels) {
-  const client = await getSharedClient();
-
-  for (const channelId of channels) {
-    logger.info(`Starting channel: ${channelId}`);
-    const downloader = new DownloadChannel();
-    try {
-      await downloader.handle({
-        channelId,
-        downloadableFiles: DOWNLOADABLE_FILES,
-        client,
-        exitProcess: false,
-      });
-      currentJob.results.push({ channel: channelId, status: "done" });
-      logger.success(`Finished channel: ${channelId}`);
-    } catch (err) {
-      logger.error(`Failed channel ${channelId}: ${err.message}`);
-      currentJob.results.push({ channel: channelId, status: "error", error: err.message });
-    }
-  }
-
-  currentJob.status = "completed";
-  currentJob.finishedAt = new Date().toISOString();
-  logger.success("All channels processed.");
-}
-
-// Search your own channel/group for a file by name or caption text.
-// GET /search?query=song%20name&channel=yourChannelUsernameOrId
-// If "channel" is omitted, falls back to the first entry in the CHANNELS env var.
-app.get("/search", requireSecret, async (req, res) => {
-  try {
-    const query = req.query.query;
-    const channel =
-      req.query.channel ||
-      (process.env.CHANNELS ? process.env.CHANNELS.split(",")[0].trim() : null);
-
-    if (!query) {
-      return res.status(400).json({ error: "Pass ?query=filename or song name" });
-    }
-    if (!channel) {
-      return res.status(400).json({ error: "Pass ?channel=... or set CHANNELS env var" });
-    }
-
-    const client = await getSharedClient();
-    const messages = await searchMessages(client, channel, query, 20);
-
-    const results = messages
-      .filter((m) => m.media)
-      .map((m) => ({
-        messageId: m.id,
-        fileName: getMediaFileName(m),
-        mediaType: getMediaType(m),
-        caption: m.message || "",
-        date: m.date,
-      }));
-
-    res.json({ channel, query, count: results.length, results });
-  } catch (err) {
-    logger.error(err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Download exactly one matched file by its message id (no zip, just the raw file).
-// GET /file/:messageId?channel=yourChannelUsernameOrId
-app.get("/file/:messageId", requireSecret, async (req, res) => {
-  try {
-    const messageId = Number(req.params.messageId);
-    const channel =
-      req.query.channel ||
-      (process.env.CHANNELS ? process.env.CHANNELS.split(",")[0].trim() : null);
-
-    if (!channel) {
-      return res.status(400).json({ error: "Pass ?channel=... or set CHANNELS env var" });
-    }
-
-    const client = await getSharedClient();
-    const [message] = await client.getMessages(channel, { ids: [messageId] });
-
-    if (!message || !message.media) {
-      return res.status(404).json({ error: "No message/media found for that id" });
-    }
-
-    const fileName = getMediaFileName(message) || `${messageId}_file`;
-    const tempDir = path.join(EXPORT_DIR, "_tmp_single");
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    const tempPath = path.join(tempDir, fileName);
-
-    const ok = await downloadMessageMedia(client, message, tempPath);
-    if (!ok || !fs.existsSync(tempPath)) {
-      return res.status(500).json({ error: "Download failed" });
-    }
-
-    res.download(tempPath, fileName, (err) => {
-      // Clean up the temp copy after it's been sent, so the free Render disk
-      // doesn't fill up with one-off downloads.
-      fs.unlink(tempPath, () => {});
-      if (err) logger.error(`Error sending file: ${err.message}`);
+/**
+ * 1. Health Check & Ping Endpoint (UptimeRobot / Cron Jobs ke liye)
+ */
+app.get('/', (req, res) => {
+    res.json({
+        service: 'Telegram VK Music Extractor',
+        status: 'online',
+        isScrapingRunning: isScrapingRunning,
+        lastStatus: lastScrapingStatus
     });
-  } catch (err) {
-    logger.error(err.message);
-    res.status(500).json({ error: err.message });
-  }
 });
 
+/**
+ * 2. Status Endpoint - Current Job ka Status dekhne ke liye
+ */
+app.get('/status', (req, res) => {
+    res.json({
+        isRunning: isScrapingRunning,
+        details: lastScrapingStatus
+    });
+});
+
+/**
+ * 3. Extract VK Music Trigger Endpoint
+ * Query Params:
+ *  - limit: Number of messages to fetch (Default: 20)
+ *  - bot: Target Bot username without @ (Default: vkmusic_bot)
+ * Example: /extract-vk?limit=50&bot=vkmusic_bot
+ */
+app.get('/extract-vk', async (req, res) => {
+    // Prevent overlapping extraction jobs
+    if (isScrapingRunning) {
+        return res.status(409).json({
+            status: 'busy',
+            message: 'An extraction job is already in progress. Please wait for it to finish.',
+            lastStatus: lastScrapingStatus
+        });
+    }
+
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const botUsername = req.query.bot ? req.query.bot.trim() : 'vkmusic_bot';
+
+    // Lock job status
+    isScrapingRunning = true;
+    lastScrapingStatus = {
+        status: 'running',
+        targetBot: botUsername,
+        limit: limit,
+        startedAt: new Date().toISOString()
+    };
+
+    // Immediate response to browser/HTTP client
+    res.json({
+        status: 'initiated',
+        message: `VK Music extraction started for @${botUsername} (Last ${limit} messages). Check Render Dashboard Logs for live progress!`,
+        timestamp: new Date().toISOString()
+    });
+
+    // Background Async Runner
+    (async () => {
+        try {
+            console.log(`\n========================================`);
+            console.log(`🚀 Starting VK Music Job for @${botUsername}`);
+            console.log(`========================================\n`);
+
+            const client = await getClient();
+
+            await downloadVkMusic(client, {
+                botUsername: botUsername,
+                limit: limit
+            });
+
+            lastScrapingStatus = {
+                status: 'completed',
+                targetBot: botUsername,
+                limit: limit,
+                completedAt: new Date().toISOString()
+            };
+            console.log(`\n✅ VK Music Extraction Job Completed Successfully.\n`);
+        } catch (error) {
+            console.error(`\n❌ VK Music Extraction Job Failed:`, error.message);
+            lastScrapingStatus = {
+                status: 'failed',
+                targetBot: botUsername,
+                error: error.message,
+                failedAt: new Date().toISOString()
+            };
+        } finally {
+            isScrapingRunning = false;
+        }
+    })();
+});
+
+// Start Express Server
 app.listen(PORT, () => {
-  logger.success(`Server listening on port ${PORT}`);
-  logger.info(`Export directory: ${EXPORT_DIR}`);
+    console.log(`=================================================`);
+    console.log(`🚀 Telegram Scraper Server running on port ${PORT}`);
+    console.log(`🌐 Base URL: http://localhost:${PORT}/`);
+    console.log(`🎵 Trigger URL: http://localhost:${PORT}/extract-vk?limit=20`);
+    console.log(`=================================================`);
+});
+
+// Global Handlers (Render crashes se bachne ke liye)
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('⚠️ Uncaught Exception:', error);
 });

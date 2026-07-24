@@ -110,4 +110,4 @@ async function waitForMessage(client, chatId, timeoutMs, conditionCallback) {
     });
 }
 
-module.exports = { fetchVKMusic };
+module.exports = { downloadVkMusic, fetchVKMusic };

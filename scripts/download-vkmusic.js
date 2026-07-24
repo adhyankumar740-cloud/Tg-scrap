@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const { getVkMusicMessages } = require("../modules/messages");
 const { ensureDirExists } = require("../utils/file-helper");
+const { EXPORT_DIR } = require("../utils/paths");
 
 /**
  * VK Music Bot se Audio Tracks download karne ka main runner
@@ -9,7 +10,7 @@ const { ensureDirExists } = require("../utils/file-helper");
 async function downloadVkMusic(client, options = {}) {
     const botUsername = options.botUsername || "vkmusic_bot";
     const limit = options.limit || 100;
-    const outputDir = path.join(process.cwd(), "downloads", "VK_Music");
+    const outputDir = path.join(EXPORT_DIR, "VK_Music");
 
     ensureDirExists(outputDir);
 
@@ -75,6 +76,7 @@ async function downloadVkMusic(client, options = {}) {
 
     } catch (err) {
         console.error("❌ Downloading mein error aaya:", err.message);
+        throw err;
     }
 }
 

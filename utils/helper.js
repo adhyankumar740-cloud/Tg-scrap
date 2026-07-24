@@ -89,6 +89,36 @@ const checkFileExist = (message, outputFolder) => {
   return fs.existsSync(filePath);
 };
 
+// Get just the display filename for a message's media, with no filesystem side effects.
+// Used for search results where we only need to show the name, not save anything yet.
+const getMediaFileName = (message) => {
+  if (!message || !message.media) return null;
+
+  let fileName = `${message.id}_file`;
+  const { media } = message;
+
+  if (media.document) {
+    const docAttributes = media.document.attributes;
+    if (docAttributes) {
+      const fileNameObj = docAttributes.find(
+        (e) => e.className === "DocumentAttributeFilename"
+      );
+      if (fileNameObj) {
+        fileName = fileNameObj.fileName;
+      } else {
+        const ext = mimeDB[media.document.mimeType]?.extensions[0];
+        if (ext) fileName += `.${ext}`;
+      }
+    }
+  }
+
+  if (media.video) fileName += ".mp4";
+  if (media.audio) fileName += ".mp3";
+  if (media.photo) fileName += ".jpg";
+
+  return fileName;
+};
+
 // Get the path to save the media file
 const getMediaPath = (message, outputFolder) => {
   if (!message || !message.media) return "unknown";
@@ -207,6 +237,7 @@ module.exports = {
   getMediaType,
   checkFileExist,
   getMediaPath,
+  getMediaFileName,
   getDialogType,
   logMessage,
   wait,

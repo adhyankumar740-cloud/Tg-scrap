@@ -11,6 +11,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve downloaded mp3 files: GET /downloads/<filename>.mp3
+app.use('/downloads', express.static(path.join(__dirname, 'downloads')));
+
 // Global Scraper State
 let isScrapingRunning = false;
 let lastScrapingStatus = {
@@ -90,17 +93,20 @@ app.get('/extract-vk', async (req, res) => {
 
             const client = await getClient();
 
-            await downloadVkMusic(client, {
+            const result = await downloadVkMusic(client, {
                 botUsername: botUsername,
                 limit: limit,
                 query: song
             });
 
             lastScrapingStatus = {
-                status: 'completed',
+                status: result && result.success ? 'completed' : 'failed',
                 targetBot: botUsername,
                 limit: limit,
                 query: song || undefined,
+                fileName: result ? result.fileName : undefined,
+                downloadUrl: result && result.fileName ? `/downloads/${result.fileName}` : undefined,
+                error: result && !result.success ? result.error : undefined,
                 completedAt: new Date().toISOString()
             };
             console.log(`\n✅ VK Music Extraction Job Completed Successfully.\n`);

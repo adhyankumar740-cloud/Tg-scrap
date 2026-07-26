@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { getClient } = require('./modules/auth');
 const { downloadVkMusic } = require('./scripts/download-vkmusic');
+const CloneChannel = require('./scripts/clone-channel');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,14 @@ let isScrapingRunning = false;
 let lastScrapingStatus = {
     status: 'idle',
     message: 'No extraction task has run yet.',
+    timestamp: null
+};
+
+// Global Clone (channel -> channel dump) State — separate lock from the VK job above
+let isCloneRunning = false;
+let lastCloneStatus = {
+    status: 'idle',
+    message: 'No clone/dump task has run yet.',
     timestamp: null
 };
 
@@ -122,6 +131,113 @@ app.get('/extract-vk', async (req, res) => {
             isScrapingRunning = false;
         }
     })();
+});
+
+/**
+ * 4. Clone/Dump Trigger Endpoint
+ * Ek ya zyada channel(s) ka pura content doosre channel(s) me forward-dump karta hai.
+ *
+ * Optional auth: agar APP_SECRET env var set hai, to header "x-api-key" match hona chahiye.
+ *
+ * Body (JSON):
+ *  - single pair:  { "source": "channel1", "dest": "channel2" }
+ *  - multiple:      { "pairs": [ { "source": "channel1", "dest": "channel2" },
+ *                                { "source": "channel3", "dest": "channel4" } ] }
+ *
+ * Example:
+ * curl -X POST https://your-service.onrender.com/clone-channel \
+ *   -H "Content-Type: application/json" \
+ *   -H "x-api-key: your-app-secret" \
+ *   -d '{"source":"@old_channel","dest":"@new_channel"}'
+ */
+app.post('/clone-channel', async (req, res) => {
+    const appSecret = process.env.APP_SECRET;
+    if (appSecret && req.headers['x-api-key'] !== appSecret) {
+        return res.status(401).json({ status: 'unauthorized', message: 'Invalid or missing x-api-key header.' });
+    }
+
+    if (isCloneRunning) {
+        return res.status(409).json({
+            status: 'busy',
+            message: 'A clone/dump job is already in progress. Please wait for it to finish.',
+            lastStatus: lastCloneStatus
+        });
+    }
+
+    let pairs = req.body?.pairs;
+    if (!pairs || !pairs.length) {
+        const source = req.body?.source || req.query.source;
+        const dest = req.body?.dest || req.query.dest;
+        if (!source || !dest) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Provide either { "source", "dest" } or { "pairs": [{ "source", "dest" }, ...] } in the request body.'
+            });
+        }
+        pairs = [{ source, dest }];
+    }
+    // CloneChannel expects { sourceId, destId }
+    const normalizedPairs = pairs.map((p) => ({ sourceId: p.source, destId: p.dest }));
+
+    isCloneRunning = true;
+    lastCloneStatus = {
+        status: 'running',
+        pairs: pairs,
+        startedAt: new Date().toISOString()
+    };
+
+    // Turant response bhej do, kaam background me chalega
+    res.json({
+        status: 'initiated',
+        message: `Cloning started for ${normalizedPairs.length} channel(s). Poll GET /clone-status for progress; each channel's completion is logged there and in the Render logs.`,
+        pairs: pairs,
+        timestamp: new Date().toISOString()
+    });
+
+    // Background Async Runner
+    (async () => {
+        try {
+            console.log(`\n========================================`);
+            console.log(`🚀 Starting Clone Job: ${normalizedPairs.length} channel(s)`);
+            console.log(`========================================\n`);
+
+            const client = await getClient();
+            const cloneChannel = new CloneChannel();
+
+            const results = await cloneChannel.handle({
+                client,
+                exitProcess: false, // web service process ko zinda rakho
+                pairs: normalizedPairs
+            });
+
+            lastCloneStatus = {
+                status: 'completed',
+                message: `Sab ho gaya! ${results.length} channel(s) dump ho chuke hain.`,
+                results: results, // [{ sourceName, destName, total }, ...]
+                completedAt: new Date().toISOString()
+            };
+            console.log(`\n✅ Clone Job Completed Successfully.\n`);
+        } catch (error) {
+            console.error(`\n❌ Clone Job Failed:`, error.message);
+            lastCloneStatus = {
+                status: 'failed',
+                error: error.message,
+                failedAt: new Date().toISOString()
+            };
+        } finally {
+            isCloneRunning = false;
+        }
+    })();
+});
+
+/**
+ * 5. Clone Status Endpoint - clone/dump job ka current status
+ */
+app.get('/clone-status', (req, res) => {
+    res.json({
+        isRunning: isCloneRunning,
+        details: lastCloneStatus
+    });
 });
 
 // Start Express Server

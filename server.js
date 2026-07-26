@@ -222,6 +222,7 @@ app.post('/clone-channel', async (req, res) => {
             lastCloneStatus = {
                 status: 'failed',
                 error: error.message,
+                retryAfterSeconds: error.floodWaitSeconds || undefined,
                 failedAt: new Date().toISOString()
             };
         } finally {

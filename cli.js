@@ -1,5 +1,6 @@
 const readline = require("readline");
 const { downloadVkMusic } = require("./scripts/download-vkmusic");
+const CloneChannel = require("./scripts/clone-channel");
 // Apne existing authentication module ko require karein
 const { getClient } = require("./modules/auth");
 
@@ -17,9 +18,10 @@ async function main() {
     console.log("  🎵 TELEGRAM VK MUSIC BOT SCRAPER / EXTRACTOR ");
     console.log("==========================================\n");
     console.log("1. Extract Songs from VK Music Bot (@vkmusic_bot)");
-    console.log("2. Exit\n");
+    console.log("2. Ek channel scrap karke doosre channel me dump karo");
+    console.log("3. Exit\n");
 
-    const choice = await askQuestion("Option select karein (1-2): ");
+    const choice = await askQuestion("Option select karein (1-3): ");
 
     if (choice.trim() === "1") {
         const botUsername = await askQuestion("Bot Username enter karein (default: vkmusic_bot): ");
@@ -35,6 +37,16 @@ async function main() {
             botUsername: targetBot,
             limit: limit
         });
+
+    } else if (choice.trim() === "2") {
+        console.log("\n🔄 Telegram client connect ho raha hai...");
+        const client = await getClient();
+
+        rl.close(); // clone-channel apna khud ka inquirer prompt use karta hai
+
+        const cloneChannel = new CloneChannel();
+        await cloneChannel.handle({ client, exitProcess: true });
+        return; // handle() khud process.exit karega
 
     } else {
         console.log("Exiting...");
